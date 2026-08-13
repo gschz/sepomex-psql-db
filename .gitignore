@@ -35,3 +35,7 @@ legacy_v1/data_generated/
 # Otros
 *.bak
 *.swp
+# Local AI runtime state
+.atl/
+# CodeGraph index
+.codegraph/
