@@ -39,13 +39,16 @@ sepomex-psql-db/
 ├── data/
 │   ├── input/
 │   │   └── sepomex_data.txt   # Archivo de datos original
-│   └── generated_sql_v2/      # Archivos SQL generados por el script v2
+│   └── generated_sql_v2/      # Generado por `python -m src.main` (gitignored)
 │       ├── ... (001 a 006)
-├── database/               # Definición de la BD v2 (Schema, Funciones, Índices, Vistas)
+├── database/               # Definición de la BD v2 (aplicar en este orden)
 │   ├── schema.sql
-│   ├── functions.sql
+│   ├── views.sql
 │   ├── indexes.sql
-│   └── views.sql
+│   └── functions.sql
+├── queries/                   # Consultas de ejemplo y verificación
+│   ├── detailed_lookup_v2.sql
+│   └── testing_v2.sql
 ├── src/                       # Código fuente del generador SQL v2
 │   ├── __init__.py
 │   ├── main.py
@@ -57,7 +60,7 @@ sepomex-psql-db/
 │   └── utils.py
 ├── docs/
 │   ├── SEPOMEX_V2.md          # Especificaciones detalladas v2
-│   └── ...
+│   └── log_example.md
 ├── legacy_v1/                 # Código y artefactos de la v1 (obsoleta)
 │   └── ...
 ├── requirements.txt           # Dependencias Python
@@ -68,16 +71,32 @@ sepomex-psql-db/
 
 ## Configuración y Poblado de la Base de Datos
 
+### Opción A: Docker (recomendado)
+
+Imagen preconfigurada y poblada con los datos de SEPOMEX. Requiere [Docker](https://docs.docker.com/get-docker/).
+
+```bash
+docker compose up -d
+```
+
+La base queda disponible en `localhost:5433`. Credenciales por defecto (sobrescribibles vía variables de entorno):
+
+| Variable            | Default   |
+| ------------------- | --------- |
+| `POSTGRES_DB`       | `sepomex` |
+| `POSTGRES_USER`     | `sepomex` |
+| `POSTGRES_PASSWORD` | `sepomex` |
+| `SEPOMEX_PORT`      | `5433`    |
+
 > [!NOTE]
 >
-> **Distribución Futura con Docker:** Se planea distribuir esta base de datos como una imagen Docker preconfigurada y poblada para facilitar su uso. Consulte futuras actualizaciones de este repositorio.
+> El build regenera los archivos SQL desde los datos fuente (`python -m src.main`) y los aplica en el orden correcto al primer arranque, incluyendo el `REFRESH MATERIALIZED VIEW` posterior a la importación. Para un seed limpio: `docker compose down -v && docker compose up -d`.
 
-**Configuración Manual (si la imagen Docker no está disponible):**
+### Opción B: Configuración manual
 
-Si la imagen Docker aún no está disponible o prefiere una configuración manual, siga estos pasos:
+Siga estos pasos para crear y poblar la base de datos:
 
 1.  **Requisitos Previos:**
-
     - PostgreSQL
     - Python
     - Git
@@ -85,7 +104,7 @@ Si la imagen Docker aún no está disponible o prefiere una configuración manua
 2.  **Clonar Repositorio:**
 
     ```bash
-    git clone https://github.com/hkxdv/sepomex-psql-db.git
+    gh repo clone gschz/sepomex-psql-db
     cd sepomex-psql-db
     ```
 
@@ -110,15 +129,31 @@ Si la imagen Docker aún no está disponible o prefiere una configuración manua
 > El script generará un archivo de log detallado en `logs/sepomex_generator.log`.
 > Puedes ver un ejemplo de la salida del log en **[docs/log_example.md](docs/log_example.md)**.
 
-5.  **Crear y Estructurar Base de Datos:** Cree una base de datos PostgreSQL (ej. `sepomex_psql_db_v2`) y aplique la estructura:
+5.  **Crear y Estructurar Base de Datos:** Cree una base de datos PostgreSQL (ej. `sepomex_db`) y aplique la estructura:
 
 - En orden:
   - `schema.sql`
-  - `indexes.sql`
   - `views.sql`
+  - `indexes.sql`
   - `functions.sql`
 
-6.  **Importar Datos:** Ejecute los scripts SQL generados en el paso 5, **en orden numérico**, dentro del directorio `data/generated_sql_v2/`:
+6.  **Importar Datos:** Ejecute los scripts SQL generados en el paso 4, **en orden numérico**, dentro del directorio `data/generated_sql_v2/`:
+
+    ```bash
+    for f in data/generated_sql_v2/*.sql; do
+      psql -h localhost -U <usuario> -d sepomex_db -f "$f"
+    done
+    ```
+
+> [!IMPORTANT]
+>
+> La vista materializada `vm_codigos_postales` se crea y refresca **vacía** durante el paso 5 (antes de importar datos). Después de importar, debe refrescarse para que las funciones PL/pgSQL devuelvan resultados; de lo contrario las consultas regresarán `data: []`.
+
+7.  **Refrescar la Vista Materializada:** Actualice `vm_codigos_postales` para reflejar los datos importados:
+
+    ```bash
+    psql -h localhost -U <usuario> -d sepomex_db -c "REFRESH MATERIALIZED VIEW vm_codigos_postales;"
+    ```
 
 ## Consultas de Ejemplo
 
@@ -131,10 +166,6 @@ Para ver ejemplos de consultas detalladas usando las funciones PL/pgSQL y consul
 
 Para una descripción detallada de las optimizaciones, el análisis de endpoints y las especificaciones completas, consulta: **[docs/SEPOMEX_V2.md](docs/SEPOMEX_V2.md)**.
 
-> [!NOTE]
->
-> El documento `SEPOMEX_V2.md` incluye un análisis sobre la "duplicidad funcional" observada en los datos fuente (registros distintos con campos similares).
-
 ## Proyecto Relacionado
 
 Se ha desarrollado una API REST complementaria para esta base de datos v2:
@@ -145,8 +176,6 @@ Se ha desarrollado una API REST complementaria para esta base de datos v2:
 
 La API proporciona endpoints para consultas basadas en las funciones optimizadas de la BD v2.
 
-## 🥷 Autor
+## Licencia
 
-<a href="https://github.com/hkxdv">
-  <img src="https://img.shields.io/badge/-hkxdv-000000?style=for-the-badge&logo=github&labelColor=282c34" style="border-radius: 3px;" />
-</a>
+MIT &copy; Gera Schz.
